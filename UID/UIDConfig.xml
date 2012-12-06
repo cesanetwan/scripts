@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<user-id-script-config>
+<wireless-lan-controllers>
+<wlc>1.1.1.1</wlc>
+<wlc>1.1.1.2</wlc>
+</wireless-lan-controllers>
+<domain>DOMAIN</domain>
+<LogPath>C:\Windows\System32\LogFiles\</LogPath>
+<LogFormat>DTS</LogFormat>
+<AgentServer>127.0.0.1</AgentServer>
+<AgentPort>5006</AgentPort>
+<Debug>1</Debug>
+</user-id-script-config>
