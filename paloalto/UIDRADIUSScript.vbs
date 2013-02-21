@@ -72,11 +72,7 @@ Set xmlDoc = CreateObject("Microsoft.XMLDOM")
 xmlDoc.Async = "False"
 xmlDoc.Load("C:\Program Files (x86)\Palo Alto Networks\User-ID Agent\UIDConfig.xml")
 strEventUser = wscript.arguments.item(0)
-if wscript.arguments.count > 1 then
- for i = 1 to wscript.arguments.count -1
-  strEventUser = strEventUser & " " & wscript.arguments.item(i)
- next
-end if
+strCallingStation = wscript.arguments.item(1)
 
 '//
 '//Site specific variables
@@ -90,6 +86,7 @@ intLength = LogLength(strLogPath & strFileName) '//The current length of the log
 intLineCounter = 0
 
 Set objFile = objFSO.OpenTextFile(strLogPath & strFileName) '//Open the log
+Set objDebugFile = objFSO.OpenTextFile("C:\Program Files (x86)\Palo Alto Networks\User-ID Agent\UIDDebug.log", 2, True)
 
 '//
 '//Load the exclusions
@@ -101,7 +98,10 @@ If strLogFormat="DTS" Then
 ElseIf strLogFormat="IAS" Then
 	ProcessIASLog
 ElseIf strLogFormat="DHCP" Then
+	strTimeMessage = "Start: " & Now()
 	ProcessDHCPClients
+	strTimeMessage = " End: " & Now()
+	objDebugFile.writeLine(strTimeMessage)
 End If
 
 objFile.Close '//close off the file
@@ -267,14 +267,6 @@ Function ProcessIASLog
 End Function
 
 Function ProcessDHCPClients
-	'//
-	'// Create the regular expression.
-	'//
-	Set re = New RegExp
-	re.Pattern = ptrnDHCP
-	re.IgnoreCase = False
-	re.Global = True
-
 	On Error Resume Next
 
 	Set oRe=New RegExp 
@@ -290,69 +282,33 @@ Function ProcessDHCPClients
  		arrScopes(i) = o(i).SubMatches(0)
 	Next
 
-	'//
-	'//Parses the log, inspects the data associated with each event, validates, generates XML string, passes to UID
-	'// 
-	Do Until objFile.AtEndofStream 
+	If InStr(strEventUser, "\") > 0 Then
+		strEventUser = Right(strEventUser, ((Len(strEventUser))-(InStr(strEventUser, "\"))))
+	End If
 
-		If intLineCounter >= (intLength - 500) Then '//only deal with the last 500 lines (this number can be tweaked to needs)
-			strLog = objFile.ReadLine() '//read a line from the file
+	If InStr(strEventUser, "host/") = 0 Then '//Filter these events as they aren't required.
 
-			Set Matches = re.Execute(strLog) '//Perform the search
+		CleanMac strCallingStation
 
-			If Matches.Count > 0 Then '//Tests the pattern is matched.
-				set oMatch = Matches(0)
-				strTimestamp = oMatch.subMatches(0)
-				strUser = oMatch.subMatches(1)
-				strCallingStation = oMatch.subMatches(2)
+		strAddress = "Fail"
 
-				If InStr(strUser, "\") > 0 Then '//Check if domain is appended to User-Name, if so, remove for consistentcy
-					strUser = Right(strUser, ((Len(strUser))-(InStr(strUser, "\"))))
-				End If
-
-				If InStr(strEventUser, "\") > 0 Then
-					strEventUser = Right(strEventUser, ((Len(strEventUser))-(InStr(strEventUser, "\"))))
-				End If
-
-
-				If strUser = strEventUser Then
-
-
-					If UBound(Filter(arrExclusions, strUser, True, 1)) <= -1 Then
-						'//If DateDiff("n",FormatDateTime(strTimestamp),Time) <= 2 Then '//In case the radius accounting doesn't see many events, only load within 5 mins of the trigger.
-
-								If InStr(strUser, "host/") = 0 Then '//Filter these events as they aren't required.
-
-									CleanMac strCallingStation
-
-									strAddress = "Fail"
-
-									For Each scope in arrScopes
-										If strAddress = "Fail" Then
-    											strAddress = FindMac(scope, strCallingStation)
-										End If
-									Next
-
-									If strAddress <> "Fail" Then
-
-										'// Build the XML message
-										strXMLLine = "<uid-message><version>1.0</version><type>update</type><payload><login>"
-										strXMLLine = strXMLLine & "<entry name=""" & strDomain & "\" & strUser & """ ip=""" & strAddress & """/>"
-										strXMLLine = strXMLLine & "</login></payload></uid-message>"
-
-										PostToAgent(strXMLLine) '//Send the relevant UID details to User-Agent
-
-									End If
-								End If
-						'//End If
-					End If
-				End If
+		For Each scope in arrScopes
+			If strAddress = "Fail" Then
+    				strAddress = FindMac(scope, strCallingStation)
 			End If
-		Else '//If the line being processed is not one of the last 500, skip it
-			objFile.SkipLine
-			intLineCounter = intLineCounter + 1 '//increment the counter
+		Next
+
+		If strAddress <> "Fail" Then
+
+			'// Build the XML message
+			strXMLLine = "<uid-message><version>1.0</version><type>update</type><payload><login>"
+			strXMLLine = strXMLLine & "<entry name=""" & strDomain & "\" & strEventUser & """ ip=""" & strAddress & """/>"
+			strXMLLine = strXMLLine & "</login></payload></uid-message>"
+
+			PostToAgent(strXMLLine) '//Send the relevant UID details to User-Agent
+
 		End If
-	Loop
+	End If
 End Function
 
 Function LoadConfig
@@ -411,4 +367,5 @@ Function CleanMac(strMac)
 	strMac = Replace(strMac, "-", "")
 	strMac = Replace(strMac, ".", "")
 	strMac = Replace(strMac, ":", "")
+	strMac = LCase(strMac)
 End Function
