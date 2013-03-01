@@ -1,13 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <user-id-script-config>
 <wireless-lan-controllers>
-<wlc>1.1.1.1</wlc>
-<wlc>1.1.1.2</wlc>
+<wlc>10.105.192.22</wlc>
+<wlc>10.105.200.31</wlc>
 </wireless-lan-controllers>
-<domain>DOMAIN</domain>
-<LogPath>C:\Windows\System32\LogFiles\</LogPath>
-<LogFormat>DTS</LogFormat>
+<domain>TEST</domain>
+<LogPath>C:\Windows\System32\LogFiles\npsaccounting\</LogPath>
+<LogFormat>DHCP</LogFormat>
 <AgentServer>127.0.0.1</AgentServer>
 <AgentPort>5006</AgentPort>
 <Debug>1</Debug>
+<DHCPServer>WIN-RRO9O4K5I58</DHCPServer>
 </user-id-script-config>

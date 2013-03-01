@@ -4,11 +4,14 @@
 ' purpose with or without fee is hereby granted, provided that the above
 ' copyright notice and this permission notice appear in all copies.
 
-' Alterations to use RADIUS accounting logs over Kiwi/syslog 
-' v4.7
+' Alterations to use RADIUS accounting logs/DHCP leases over Kiwi/syslog 
+' v5.0
 ' Gareth Hill
 
 ' Changelog:
+
+' v5.0
+'	* DHCP stuff added
 
 ' v4.7
 '	* Now passes username from Windows Event to script to allow for more precision - requires the scheduled task to be created with further criteria.
@@ -57,10 +60,11 @@
 '//
 '//Declaring site-agnostic variables
 '//
-set xmlHttp = CreateObject("Msxml2.ServerXMLHTTP")
+set xmlHttp = CreateObject("MSXML2.ServerXMLHTTP")
 Set objFSO = CreateObject("Scripting.FileSystemObject")
 Const SXH_SERVER_CERT_IGNORE_ALL_SERVER_ERRORS = 13056
 ptrn = "<Timestamp data_type=\S4\S>.+(\d\d:\d\d:\d\d)\.\d+</Timestamp>.*<User-Name data_type=\S1\S>(.+)</User-Name>.*<Framed-IP-Address data_type=\S3\S>(\d+\.\d+\.\d+\.\d+)</Framed-IP-Address>.*<Acct-Authentic data_type=\S0\S>[^3]</Acct-Authentic>.*<Client-IP-Address data_type=\S3\S>(\d+\.\d+\.\d+\.\d+)" '//Regex Pattern to match in the logs, for NPS
+ptrnDHCP= "<Timestamp data_type=\S4\S>.+(\d\d:\d\d:\d\d)\.\d+</Timestamp>.*<User-Name data_type=\S1\S>(.+)</User-Name>.*<Calling-Station-Id data_type=\S1\S>(.+)</Calling-Station-Id>"
 strFileName = "IN" & right(year(date()),2) & right("0" & month(date()),2) & right("0" & day(date()),2) & ".log" '//The log name for the date in question
 Dim arrExclusions(), aClientIPS()
 Dim strDomain, strLogPath, strLogFormat, strAgentServer, strAgentPort
@@ -68,11 +72,7 @@ Set xmlDoc = CreateObject("Microsoft.XMLDOM")
 xmlDoc.Async = "False"
 xmlDoc.Load("C:\Program Files (x86)\Palo Alto Networks\User-ID Agent\UIDConfig.xml")
 strEventUser = wscript.arguments.item(0)
-if wscript.arguments.count > 1 then
- for i = 1 to wscript.arguments.count -1
-  strEventUser = strEventUser & " " & wscript.arguments.item(i)
- next
-end if
+strCallingStation = wscript.arguments.item(1)
 
 '//
 '//Site specific variables
@@ -80,25 +80,33 @@ end if
 LoadConfig
 
 '//
-'//Variables used to narrow the range of lines processed
-'//
-intLength = LogLength(strLogPath & strFileName) '//The current length of the log file.
-intLineCounter = 0
-
-Set objFile = objFSO.OpenTextFile(strLogPath & strFileName) '//Open the log
-
-'//
 '//Load the exclusions
 '//
 LoadExclusions("C:\Program Files (x86)\Palo Alto Networks\User-ID Agent\ignore_user_list.txt")
 
 If strLogFormat="DTS" Then
+	'//
+	'//Variables used to narrow the range of lines processed
+	'//
+	intLength = LogLength(strLogPath & strFileName) '//The current length of the log file.
+	intLineCounter = 0
+	
+	Set objFile = objFSO.OpenTextFile(strLogPath & strFileName) '//Open the log
 	ProcessDTSLog
+	objFile.Close '//close off the file
 ElseIf strLogFormat="IAS" Then
+	'//
+	'//Variables used to narrow the range of lines processed
+	'//
+	intLength = LogLength(strLogPath & strFileName) '//The current length of the log file.
+	intLineCounter = 0
+	
+	Set objFile = objFSO.OpenTextFile(strLogPath & strFileName) '//Open the log
 	ProcessIASLog
+	objFile.Close '//close off the file
+ElseIf strLogFormat="DHCP" Then
+	ProcessDHCPClients
 End If
-
-objFile.Close '//close off the file
 
 '//
 '//Takes an XML string, opens a connection to User-Agent, sends XML, closes connection
@@ -107,9 +115,9 @@ Function PostToAgent(strUserAgentData)
 	sUrl = "https://" & strAgentServer & ":" & strAgentPort & "/"
 	On Error Resume Next
 	xmlHttp.open "put", sUrl, False
-	xmlhttp.setRequestHeader "Content-type", "text/xml"
-	xmlHttp.setOption 2, SXH_SERVER_CERT_IGNORE_ALL_SERVER_ERRORS
-	xmlHttp.send strUserAgentData
+	xmlhttp.setRequestHeader "Content-type", "application/x-www-form-urlencoded; charset=ISO-8859-1"
+	xmlHttp.setOption 2, 13056
+	xmlHttp.send(strUserAgentData)
 	xmlHttp.close
 End Function
 
@@ -147,12 +155,12 @@ Function ProcessDTSLog
 	re.Global = True
 
 	On Error Resume Next
-	
+
 	'//
 	'//Parses the log, inspects the data associated with each event, validates, generates XML string, passes to UID
 	'// 
 	Do Until objFile.AtEndofStream 
-	
+
 		If intLineCounter >= (intLength - 500) Then '//only deal with the last 500 lines (this number can be tweaked to needs)
 			strLog = objFile.ReadLine() '//read a line from the file
 
@@ -174,18 +182,18 @@ Function ProcessDTSLog
 				End If
 
 				If strUser = strEventUser Then
-			
+
 					If UBound(Filter(arrExclusions, strUser, True, 1)) <= -1 Then
 						'//If DateDiff("n",FormatDateTime(strTimestamp),Time) <= 2 Then '//In case the radius accounting doesn't see many events, only load within 5 mins of the trigger.
 							If UBound(Filter(aClientIPs, strClientIP, True, 0)) > -1 Then '//Only deal with events from WLCs defined above
 
 								If InStr(strUser, "host/") = 0 Then '//Filter these events as they aren't required.
-	
+
 									'// Build the XML message
 									strXMLLine = "<uid-message><version>1.0</version><type>update</type><payload><login>"
 									strXMLLine = strXMLLine & "<entry name=""" & strDomain & "\" & strUser & """ ip=""" & strAddress & """/>"
 									strXMLLine = strXMLLine & "</login></payload></uid-message>"
-	
+
 									PostToAgent(strXMLLine) '//Send the relevant UID details to User-Agent
 								End If
 							End If
@@ -206,9 +214,9 @@ Function ProcessIASLog
 	'// 
 
 	On Error Resume Next
-	
+
 	Do Until objFile.AtEndofStream 
-	
+
 		If intLineCounter >= (intLength - 500) Then '//only deal with the last 500 lines (this number can be tweaked to needs)
 			strLog = objFile.ReadLine() '//read a line from the file
 
@@ -233,18 +241,18 @@ Function ProcessIASLog
 					End If
 
 					If strUser = strEventUser Then
-			
+
 						If UBound(Filter(arrExclusions, strUser, True, 1)) <= -1 Then
 							'//If DateDiff("n",FormatDateTime(strTimestamp),Time) <= 2 Then '//In case the radius accounting doesn't see many events, only load within 5 mins of the trigger.
 								If UBound(Filter(aClientIPs, strClientIP, True, 0)) > -1 Then '//Only deal with events from WLCs defined above
 
 									If InStr(strUser, "host/") = 0 Then '//Filter these events as they aren't required.
-	
+
 										'// Build the XML message
 										strXMLLine = "<uid-message><version>1.0</version><type>update</type><payload><login>"
 										strXMLLine = strXMLLine & "<entry name=""" & strDomain & "\" & strUser & """ ip=""" & strAddress & """/>"
 										strXMLLine = strXMLLine & "</login></payload></uid-message>"
-	
+
 										PostToAgent(strXMLLine) '//Send the relevant UID details to User-Agent
 									End If
 								End If
@@ -258,6 +266,55 @@ Function ProcessIASLog
 			intLineCounter = intLineCounter + 1 '//increment the counter
 		End If
 	Loop
+End Function
+
+Function ProcessDHCPClients
+	On Error Resume Next
+
+
+	Set oRe=New RegExp 
+	Set oShell = CreateObject("WScript.Shell") 
+  
+	oRe.Global=True
+
+	oRe.Pattern= "\s(\d+\.\d+\.\d+\.\d+)\s*-\s\d+\.\d+\.\d+\.\d+\s*-Active"
+	Set oScriptExec = oShell.Exec("netsh dhcp server \\" & strDHCPServer & " show scope") 
+	Set o=oRe.Execute(oScriptExec.StdOut.ReadAll) 
+	For i=0 To o.Count-1
+ 		Redim Preserve arrScopes(i)
+ 		arrScopes(i) = o(i).SubMatches(0)
+	Next
+	
+
+
+	If InStr(strEventUser, "\") > 0 Then
+		strEventUser = Right(strEventUser, ((Len(strEventUser))-(InStr(strEventUser, "\"))))
+	End If
+
+	If InStr(strEventUser, "host/") = 0 Then '//Filter these events as they aren't required.
+
+		CleanMac strCallingStation
+
+		strAddress = "Fail"
+
+		For Each scope in arrScopes
+
+			If strAddress = "Fail" Then
+    				strAddress = FindMac(scope, strCallingStation)
+			End If
+		Next
+
+		If strAddress <> "Fail" Then
+
+			'// Build the XML message
+			strXMLLine = "<uid-message><version>1.0</version><type>update</type><payload><login>"
+			strXMLLine = strXMLLine & "<entry name=""" & strDomain & "\" & strEventUser & """ ip=""" & strAddress & """/>"
+			strXMLLine = strXMLLine & "</login></payload></uid-message>"
+
+			PostToAgent(strXMLLine) '//Send the relevant UID details to User-Agent
+
+		End If
+	End If
 End Function
 
 Function LoadConfig
@@ -284,5 +341,40 @@ Function LoadConfig
 	strQuery = "/user-id-script-config/LogFormat"
 	Set objItem = xmlDoc.selectSingleNode(strQuery)
 	strLogFormat = objItem.text
+	strQuery = "/user-id-script-config/DHCPServer"
+	Set objItem = xmlDoc.selectSingleNode(strQuery)
+	strDHCPServer = objItem.text
 	count = 0
+End Function
+
+Function FindMac(strScope, strMac)
+	strIP = ""
+	Set oShell = CreateObject("WScript.Shell") 
+	Set oRe2=New RegExp
+	oRe2.Global=True
+	oRe2.Pattern= "(\d+\.\d+\.\d+\.\d+)\s*-\s\d+\.\d+\.\d+\.\d+\s*-\s*(([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2}))"
+	Set oScriptExec = oShell.Exec("netsh dhcp server \\" & strDHCPServer & " scope " & strScope & " show clients")
+      	Do Until oScriptExec.StdOut.AtEndOfStream  
+    		strTemp = oScriptExec.StdOut.ReadLine 
+		set p = oRe2.Execute(strTemp)
+		If p.Count > 0 Then
+			strMacComp = p(0).SubMatches(1)
+			CleanMac strMacComp
+			If strMac = strMacComp Then
+                        	strIP = p(0).SubMatches(0)
+			End If
+		End If
+      	Loop
+	If strIP <> "" Then
+		FindMac=strIP
+	Else 
+		FindMac="Fail"
+	End If
+End Function
+
+Function CleanMac(strMac)
+	strMac = Replace(strMac, "-", "")
+	strMac = Replace(strMac, ".", "")
+	strMac = Replace(strMac, ":", "")
+	strMac = LCase(strMac)
 End Function
