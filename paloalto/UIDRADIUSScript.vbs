@@ -4,7 +4,7 @@
 ' purpose with or without fee is hereby granted, provided that the above
 ' copyright notice and this permission notice appear in all copies.
 
-' Alterations to use RADIUS accounting logs over Kiwi/syslog 
+' Alterations to use RADIUS accounting logs/DHCP leases over Kiwi/syslog 
 ' v5.0
 ' Gareth Hill
 
@@ -60,7 +60,7 @@
 '//
 '//Declaring site-agnostic variables
 '//
-set xmlHttp = CreateObject("Msxml2.ServerXMLHTTP")
+set xmlHttp = CreateObject("MSXML2.ServerXMLHTTP")
 Set objFSO = CreateObject("Scripting.FileSystemObject")
 Const SXH_SERVER_CERT_IGNORE_ALL_SERVER_ERRORS = 13056
 ptrn = "<Timestamp data_type=\S4\S>.+(\d\d:\d\d:\d\d)\.\d+</Timestamp>.*<User-Name data_type=\S1\S>(.+)</User-Name>.*<Framed-IP-Address data_type=\S3\S>(\d+\.\d+\.\d+\.\d+)</Framed-IP-Address>.*<Acct-Authentic data_type=\S0\S>[^3]</Acct-Authentic>.*<Client-IP-Address data_type=\S3\S>(\d+\.\d+\.\d+\.\d+)" '//Regex Pattern to match in the logs, for NPS
@@ -80,31 +80,33 @@ strCallingStation = wscript.arguments.item(1)
 LoadConfig
 
 '//
-'//Variables used to narrow the range of lines processed
-'//
-intLength = LogLength(strLogPath & strFileName) '//The current length of the log file.
-intLineCounter = 0
-
-Set objFile = objFSO.OpenTextFile(strLogPath & strFileName) '//Open the log
-Set objDebugFile = objFSO.OpenTextFile("C:\Program Files (x86)\Palo Alto Networks\User-ID Agent\UIDDebug.log", 2, True)
-
-'//
 '//Load the exclusions
 '//
 LoadExclusions("C:\Program Files (x86)\Palo Alto Networks\User-ID Agent\ignore_user_list.txt")
 
 If strLogFormat="DTS" Then
+	'//
+	'//Variables used to narrow the range of lines processed
+	'//
+	intLength = LogLength(strLogPath & strFileName) '//The current length of the log file.
+	intLineCounter = 0
+	
+	Set objFile = objFSO.OpenTextFile(strLogPath & strFileName) '//Open the log
 	ProcessDTSLog
+	objFile.Close '//close off the file
 ElseIf strLogFormat="IAS" Then
+	'//
+	'//Variables used to narrow the range of lines processed
+	'//
+	intLength = LogLength(strLogPath & strFileName) '//The current length of the log file.
+	intLineCounter = 0
+	
+	Set objFile = objFSO.OpenTextFile(strLogPath & strFileName) '//Open the log
 	ProcessIASLog
+	objFile.Close '//close off the file
 ElseIf strLogFormat="DHCP" Then
-	strTimeMessage = "Start: " & Now()
 	ProcessDHCPClients
-	strTimeMessage = " End: " & Now()
-	objDebugFile.writeLine(strTimeMessage)
 End If
-
-objFile.Close '//close off the file
 
 '//
 '//Takes an XML string, opens a connection to User-Agent, sends XML, closes connection
@@ -113,9 +115,9 @@ Function PostToAgent(strUserAgentData)
 	sUrl = "https://" & strAgentServer & ":" & strAgentPort & "/"
 	On Error Resume Next
 	xmlHttp.open "put", sUrl, False
-	xmlhttp.setRequestHeader "Content-type", "text/xml"
-	xmlHttp.setOption 2, SXH_SERVER_CERT_IGNORE_ALL_SERVER_ERRORS
-	xmlHttp.send strUserAgentData
+	xmlhttp.setRequestHeader "Content-type", "application/x-www-form-urlencoded; charset=ISO-8859-1"
+	xmlHttp.setOption 2, 13056
+	xmlHttp.send(strUserAgentData)
 	xmlHttp.close
 End Function
 
@@ -269,18 +271,21 @@ End Function
 Function ProcessDHCPClients
 	On Error Resume Next
 
+
 	Set oRe=New RegExp 
 	Set oShell = CreateObject("WScript.Shell") 
   
 	oRe.Global=True
 
 	oRe.Pattern= "\s(\d+\.\d+\.\d+\.\d+)\s*-\s\d+\.\d+\.\d+\.\d+\s*-Active"
-	Set oScriptExec = oShell.Exec("netsh dhcp server show scope") 
+	Set oScriptExec = oShell.Exec("netsh dhcp server \\" & strDHCPServer & " show scope") 
 	Set o=oRe.Execute(oScriptExec.StdOut.ReadAll) 
 	For i=0 To o.Count-1
  		Redim Preserve arrScopes(i)
  		arrScopes(i) = o(i).SubMatches(0)
 	Next
+	
+
 
 	If InStr(strEventUser, "\") > 0 Then
 		strEventUser = Right(strEventUser, ((Len(strEventUser))-(InStr(strEventUser, "\"))))
@@ -293,6 +298,7 @@ Function ProcessDHCPClients
 		strAddress = "Fail"
 
 		For Each scope in arrScopes
+
 			If strAddress = "Fail" Then
     				strAddress = FindMac(scope, strCallingStation)
 			End If
@@ -335,6 +341,9 @@ Function LoadConfig
 	strQuery = "/user-id-script-config/LogFormat"
 	Set objItem = xmlDoc.selectSingleNode(strQuery)
 	strLogFormat = objItem.text
+	strQuery = "/user-id-script-config/DHCPServer"
+	Set objItem = xmlDoc.selectSingleNode(strQuery)
+	strDHCPServer = objItem.text
 	count = 0
 End Function
 
@@ -344,7 +353,7 @@ Function FindMac(strScope, strMac)
 	Set oRe2=New RegExp
 	oRe2.Global=True
 	oRe2.Pattern= "(\d+\.\d+\.\d+\.\d+)\s*-\s\d+\.\d+\.\d+\.\d+\s*-\s*(([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2}))"
-	Set oScriptExec = oShell.Exec("netsh dhcp server scope " & strScope & " show clients")
+	Set oScriptExec = oShell.Exec("netsh dhcp server \\" & strDHCPServer & " scope " & strScope & " show clients")
       	Do Until oScriptExec.StdOut.AtEndOfStream  
     		strTemp = oScriptExec.StdOut.ReadLine 
 		set p = oRe2.Execute(strTemp)
