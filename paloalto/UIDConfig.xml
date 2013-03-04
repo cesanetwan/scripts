@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <user-id-script-config>
 <wireless-lan-controllers>
-<wlc>1.1.1.1</wlc>
-<wlc>1.1.1.2</wlc>
+<wlc>10.105.192.22</wlc>
+<wlc>10.105.200.31</wlc>
 </wireless-lan-controllers>
 <domain>TEST</domain>
 <LogPath>C:\Windows\System32\LogFiles\npsaccounting\</LogPath>
@@ -10,5 +10,9 @@
 <AgentServer>127.0.0.1</AgentServer>
 <AgentPort>5006</AgentPort>
 <Debug>1</Debug>
-<DHCPServer>SERVERNAME</DHCPServer>
+<DHCPServer>WIN-RRO9O4K5I58</DHCPServer>
+<Key>LUFRPT1BOHRxeXZmZFRwRFU2K2JDOVh6ZzFqTU5nYzg9dEtxbTdzeFhaUENnQVMzK1MzOGdMeUlvVG5OQklPMzFPekxmSlJzUTBldz0=</Key>
+<VSYS>vsys59</VSYS>
+<Agent>0</Agent>
+<Timeout>20</Timeout>
 </user-id-script-config>

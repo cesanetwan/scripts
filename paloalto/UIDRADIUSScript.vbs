@@ -5,10 +5,14 @@
 ' copyright notice and this permission notice appear in all copies.
 
 ' Alterations to use RADIUS accounting logs/DHCP leases over Kiwi/syslog 
-' v5.0
+' v5.1
 ' Gareth Hill
 
+
 ' Changelog:
+
+' v5.1 
+'	* Agentless support
 
 ' v5.0
 '	* DHCP stuff added
@@ -67,7 +71,7 @@ ptrn = "<Timestamp data_type=\S4\S>.+(\d\d:\d\d:\d\d)\.\d+</Timestamp>.*<User-Na
 ptrnDHCP= "<Timestamp data_type=\S4\S>.+(\d\d:\d\d:\d\d)\.\d+</Timestamp>.*<User-Name data_type=\S1\S>(.+)</User-Name>.*<Calling-Station-Id data_type=\S1\S>(.+)</Calling-Station-Id>"
 strFileName = "IN" & right(year(date()),2) & right("0" & month(date()),2) & right("0" & day(date()),2) & ".log" '//The log name for the date in question
 Dim arrExclusions(), aClientIPS()
-Dim strDomain, strLogPath, strLogFormat, strAgentServer, strAgentPort
+Dim strDomain, strLogPath, strLogFormat, strAgentServer, strAgentPort, strDHCPServer, strVsys, blnAgent, strAPIKey, strTimeout
 Set xmlDoc = CreateObject("Microsoft.XMLDOM")
 xmlDoc.Async = "False"
 xmlDoc.Load("C:\Program Files (x86)\Palo Alto Networks\User-ID Agent\UIDConfig.xml")
@@ -112,10 +116,15 @@ End If
 '//Takes an XML string, opens a connection to User-Agent, sends XML, closes connection
 '//
 Function PostToAgent(strUserAgentData)
-	sUrl = "https://" & strAgentServer & ":" & strAgentPort & "/"
 	On Error Resume Next
-	xmlHttp.open "put", sUrl, False
-	xmlhttp.setRequestHeader "Content-type", "application/x-www-form-urlencoded; charset=ISO-8859-1"
+	If blnAgent = 1 Then
+		sUrl = "https://" & strAgentServer & ":" & strAgentPort & "/"
+		xmlHttp.open "put", sUrl, False
+	Else
+		sUrl = "https://filter.cesa.catholic.edu.au/api/?key=" & strAPIKey & "&type=user-id&action=set&vsys=" & strVsys & "&client=wget&file-name=UID.xml"
+		xmlHttp.open "post", sUrl, False
+	End If
+	xmlHttp.setRequestHeader "Content-type", "text/xml"
 	xmlHttp.setOption 2, 13056
 	xmlHttp.send(strUserAgentData)
 	xmlHttp.close
@@ -191,7 +200,11 @@ Function ProcessDTSLog
 
 									'// Build the XML message
 									strXMLLine = "<uid-message><version>1.0</version><type>update</type><payload><login>"
-									strXMLLine = strXMLLine & "<entry name=""" & strDomain & "\" & strUser & """ ip=""" & strAddress & """/>"
+									If blnAgent = 1 Then
+										strXMLLine = strXMLLine & "<entry name=""" & strDomain & "\" & strUser & """ ip=""" & strAddress & """/>"
+									Else
+										strXMLLine = strXMLLine & "<entry name=""" & strDomain & "\" & strUser & """ ip=""" & strAddress & """ timeout=""20""/>"
+									End If
 									strXMLLine = strXMLLine & "</login></payload></uid-message>"
 
 									PostToAgent(strXMLLine) '//Send the relevant UID details to User-Agent
@@ -250,7 +263,11 @@ Function ProcessIASLog
 
 										'// Build the XML message
 										strXMLLine = "<uid-message><version>1.0</version><type>update</type><payload><login>"
-										strXMLLine = strXMLLine & "<entry name=""" & strDomain & "\" & strUser & """ ip=""" & strAddress & """/>"
+										If blnAgent = 1 Then
+											strXMLLine = strXMLLine & "<entry name=""" & strDomain & "\" & strUser & """ ip=""" & strAddress & """/>"
+										Else
+											strXMLLine = strXMLLine & "<entry name=""" & strDomain & "\" & strUser & """ ip=""" & strAddress & """ timeout=""20""/>"
+										End If
 										strXMLLine = strXMLLine & "</login></payload></uid-message>"
 
 										PostToAgent(strXMLLine) '//Send the relevant UID details to User-Agent
@@ -308,7 +325,11 @@ Function ProcessDHCPClients
 
 			'// Build the XML message
 			strXMLLine = "<uid-message><version>1.0</version><type>update</type><payload><login>"
-			strXMLLine = strXMLLine & "<entry name=""" & strDomain & "\" & strEventUser & """ ip=""" & strAddress & """/>"
+			If blnAgent = 1 Then
+				strXMLLine = strXMLLine & "<entry name=""" & strDomain & "\" & strEventUser & """ ip=""" & strAddress & """/>"
+			Else
+				strXMLLine = strXMLLine & "<entry name=""" & strDomain & "\" & strEventUser & """ ip=""" & strAddress & """ timeout=""20""/>"
+			End If
 			strXMLLine = strXMLLine & "</login></payload></uid-message>"
 
 			PostToAgent(strXMLLine) '//Send the relevant UID details to User-Agent
@@ -344,6 +365,18 @@ Function LoadConfig
 	strQuery = "/user-id-script-config/DHCPServer"
 	Set objItem = xmlDoc.selectSingleNode(strQuery)
 	strDHCPServer = objItem.text
+	strQuery = "/user-id-script-config/VSYS"
+	Set objItem = xmlDoc.selectSingleNode(strQuery)
+	strVsys = objItem.text
+	strQuery = "/user-id-script-config/Key"
+	Set objItem = xmlDoc.selectSingleNode(strQuery)
+	strAPIKey = objItem.text
+	strQuery = "/user-id-script-config/Agent"
+	Set objItem = xmlDoc.selectSingleNode(strQuery)
+	blnAgent = objItem.text
+	strQuery = "/user-id-script-config/Timeout"
+	Set objItem = xmlDoc.selectSingleNode(strQuery)
+	strTimeout = objItem.text
 	count = 0
 End Function
 
