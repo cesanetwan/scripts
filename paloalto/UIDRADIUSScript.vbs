@@ -67,7 +67,7 @@ ptrn = "<Timestamp data_type=\S4\S>.+(\d\d:\d\d:\d\d)\.\d+</Timestamp>.*<User-Na
 ptrnDHCP= "<Timestamp data_type=\S4\S>.+(\d\d:\d\d:\d\d)\.\d+</Timestamp>.*<User-Name data_type=\S1\S>(.+)</User-Name>.*<Calling-Station-Id data_type=\S1\S>(.+)</Calling-Station-Id>"
 strFileName = "IN" & right(year(date()),2) & right("0" & month(date()),2) & right("0" & day(date()),2) & ".log" '//The log name for the date in question
 Dim arrExclusions(), aClientIPS()
-Dim strDomain, strLogPath, strLogFormat, strAgentServer, strAgentPort
+Dim strDomain, strLogPath, strLogFormat, strAgentServer, strAgentPort, strDHCPServer
 Set xmlDoc = CreateObject("Microsoft.XMLDOM")
 xmlDoc.Async = "False"
 xmlDoc.Load("C:\Program Files (x86)\Palo Alto Networks\User-ID Agent\UIDConfig.xml")
@@ -115,7 +115,7 @@ Function PostToAgent(strUserAgentData)
 	sUrl = "https://" & strAgentServer & ":" & strAgentPort & "/"
 	On Error Resume Next
 	xmlHttp.open "put", sUrl, False
-	xmlhttp.setRequestHeader "Content-type", "application/x-www-form-urlencoded; charset=ISO-8859-1"
+	xmlhttp.setRequestHeader "Content-type", "text/xml"
 	xmlHttp.setOption 2, 13056
 	xmlHttp.send(strUserAgentData)
 	xmlHttp.close
@@ -271,38 +271,44 @@ End Function
 Function ProcessDHCPClients
 	On Error Resume Next
 
-
-	Set oRe=New RegExp 
-	Set oShell = CreateObject("WScript.Shell") 
-  
-	oRe.Global=True
-
-	oRe.Pattern= "\s(\d+\.\d+\.\d+\.\d+)\s*-\s\d+\.\d+\.\d+\.\d+\s*-Active"
-	Set oScriptExec = oShell.Exec("netsh dhcp server \\" & strDHCPServer & " show scope") 
-	Set o=oRe.Execute(oScriptExec.StdOut.ReadAll) 
-	For i=0 To o.Count-1
- 		Redim Preserve arrScopes(i)
- 		arrScopes(i) = o(i).SubMatches(0)
-	Next
-	
-
-
 	If InStr(strEventUser, "\") > 0 Then
 		strEventUser = Right(strEventUser, ((Len(strEventUser))-(InStr(strEventUser, "\"))))
 	End If
 
 	If InStr(strEventUser, "host/") = 0 Then '//Filter these events as they aren't required.
 
-		CleanMac strCallingStation
+		Set oRe=New RegExp
+		oRe.Global=True
+		oRe.Pattern= "\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b"
+		Set o=oRe.Execute(strCallingStation)
+		
+		If o.count=1 Then
+			strAddress = strCallingStation
+		Else
 
-		strAddress = "Fail"
+			Set oRe=New RegExp 
+			Set oShell = CreateObject("WScript.Shell") 
+  
+			oRe.Global=True
 
-		For Each scope in arrScopes
+			oRe.Pattern= "\s(\d+\.\d+\.\d+\.\d+)\s*-\s\d+\.\d+\.\d+\.\d+\s*-Active"
+			Set oScriptExec = oShell.Exec("netsh dhcp server \\" & strDHCPServer & " show scope") 
+			Set o=oRe.Execute(oScriptExec.StdOut.ReadAll) 
+			For i=0 To o.Count-1
+ 				Redim Preserve arrScopes(i)
+ 				arrScopes(i) = o(i).SubMatches(0)
+			Next
+			CleanMac strCallingStation
 
-			If strAddress = "Fail" Then
-    				strAddress = FindMac(scope, strCallingStation)
-			End If
-		Next
+			strAddress = "Fail"
+
+			For Each scope in arrScopes
+
+				If strAddress = "Fail" Then
+    					strAddress = FindMac(scope, strCallingStation)
+				End If
+			Next
+		End If
 
 		If strAddress <> "Fail" Then
 
@@ -362,6 +368,7 @@ Function FindMac(strScope, strMac)
 			CleanMac strMacComp
 			If strMac = strMacComp Then
                         	strIP = p(0).SubMatches(0)
+				Exit Do
 			End If
 		End If
       	Loop
