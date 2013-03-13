@@ -64,6 +64,9 @@
 '//
 '//Declaring site-agnostic variables
 '//
+
+On Error Resume Next
+
 set xmlHttp = CreateObject("MSXML2.ServerXMLHTTP")
 Set objFSO = CreateObject("Scripting.FileSystemObject")
 Const SXH_SERVER_CERT_IGNORE_ALL_SERVER_ERRORS = 13056
@@ -71,45 +74,126 @@ ptrn = "<Timestamp data_type=\S4\S>.+(\d\d:\d\d:\d\d)\.\d+</Timestamp>.*<User-Na
 ptrnDHCP= "<Timestamp data_type=\S4\S>.+(\d\d:\d\d:\d\d)\.\d+</Timestamp>.*<User-Name data_type=\S1\S>(.+)</User-Name>.*<Calling-Station-Id data_type=\S1\S>(.+)</Calling-Station-Id>"
 strFileName = "IN" & right(year(date()),2) & right("0" & month(date()),2) & right("0" & day(date()),2) & ".log" '//The log name for the date in question
 Dim arrExclusions(), aClientIPS()
-Dim strDomain, strLogPath, strLogFormat, strAgentServer, strAgentPort, strDHCPServer, strVsys, blnAgent, strAPIKey, strTimeout
+Dim strDomain, strLogPath, strLogFormat, strAgentServer, strAgentPort, strDHCPServer, strVsys, blnAgent, strAPIKey, strTimeout, debug
+Dim strStartTime, strEndTime
 Set xmlDoc = CreateObject("Microsoft.XMLDOM")
 xmlDoc.Async = "False"
-xmlDoc.Load("C:\Program Files (x86)\Palo Alto Networks\User-ID Agent\UIDConfig.xml")
+
+If objFSO.FileExists("C:\Program Files (x86)\Palo Alto Networks\User-ID Agent\UIDConfig.xml") Then
+	xmlDoc.Load("C:\Program Files (x86)\Palo Alto Networks\User-ID Agent\UIDConfig.xml")
+Else
+	CreateDefaultConfig
+	xmlDoc.Load("C:\Program Files (x86)\Palo Alto Networks\User-ID Agent\UIDConfig.xml")
+End If	
+
+LoadConfig '//Loads site specific variables from UIDConfig.xml
+
+If debug > 0 Then '//Debug flag active, open/create the log, write the opening seperator
+	Set objDebugLog = objFSO.OpenTextFile("C:\Program Files (x86)\Palo Alto Networks\User-ID Agent\UIDDebug.log", 8, True)
+	objDebugLog.writeLine("===================================================================================================================================")
+	strStartTime = Now()
+	objDebugLog.writeLine("UID Script triggered at " & strStartTime)
+End If
+
+If debug > 1 Then
+	objDebugLog.writeLine("Capturing arguments...")
+End If	
 strEventUser = wscript.arguments.item(0)
 strCallingStation = wscript.arguments.item(1)
-
-'//
-'//Site specific variables
-'//
-LoadConfig
-
-'//
-'//Load the exclusions
-'//
-LoadExclusions("C:\Program Files (x86)\Palo Alto Networks\User-ID Agent\ignore_user_list.txt")
+If Err <> 0 Then
+	strErrInfo = "Error: " & Err & " Source: " & Err.Source & " Description: " & Err.Description
+	If debug > 1 Then
+		objDebugLog.writeLine(strErrInfo)
+	End If
+Else
+	objDebugLog.writeLine("Script executed with arguments: """ & strEventUser & """ " & strCallingStation)
+End If
+	
+If debug > 1 Then
+	objDebugLog.writeLine("Loading Exclusions...")
+End If	
+LoadExclusions("C:\Program Files (x86)\Palo Alto Networks\User-ID Agent\ignore_user_list.txt") '//Loads ignore_user_list.txt
+If Err <> 0 Then
+	strErrInfo = "Error: " & Err & " Source: " & Err.Source & " Description: " & Err.Description
+	If debug > 1 Then
+		objDebugLog.writeLine(strErrInfo)
+	End If
+Else
+	objDebugLog.writeLine("Exclusions loaded successfully")
+End If
 
 If strLogFormat="DTS" Then
-	'//
-	'//Variables used to narrow the range of lines processed
-	'//
 	intLength = LogLength(strLogPath & strFileName) '//The current length of the log file.
-	intLineCounter = 0
-
+	If Err <> 0 Then
+		strErrInfo = "Error: " & Err & " Source: " & Err.Source & " Description: " & Err.Description
+		If debug > 1 Then
+			objDebugLog.writeLine(strErrInfo)
+		End If
+	Else
+		objDebugLog.writeLine("Log Length: " & intLength)
+	End If
+	intLineCounter = 0 '//Linecounter, used to narrow event range
+	
 	Set objFile = objFSO.OpenTextFile(strLogPath & strFileName) '//Open the log
+	If Err <> 0 Then
+		strErrInfo = "Error: " & Err & " Source: " & Err.Source & " Description: " & Err.Description
+		If debug > 1 Then
+			objDebugLog.writeLine(strErrInfo)
+		End If
+	Else
+		objDebugLog.writeLine("Opening log: " & strLogPath & strFileName)
+	End If
+	If debug > 0 Then '//Write basic debug info
+		objDebugLog.writeLine("DTS Format processing")
+	End If
 	ProcessDTSLog
+	If debug > 0 Then
+		strEndTime = Now()
+		objDebugLog.writeLine("UID Script finished execution at " & strEndTime & " Run-time: " & DateDiff("s",strStartTime,strEndTime) & " seconds")
+		objDebugLog.writeLine("===================================================================================================================================")
+	End If
 	objFile.Close '//close off the file
 ElseIf strLogFormat="IAS" Then
-	'//
-	'//Variables used to narrow the range of lines processed
-	'//
 	intLength = LogLength(strLogPath & strFileName) '//The current length of the log file.
-	intLineCounter = 0
-
+	If Err <> 0 Then
+		strErrInfo = "Error: " & Err & " Source: " & Err.Source & " Description: " & Err.Description
+		If debug > 1 Then
+			objDebugLog.writeLine(strErrInfo)
+		End If
+	Else
+		objDebugLog.writeLine("Log Length: " & intLength)
+	End If
+	intLineCounter = 0 '//Linecounter, used to narrow event range
+	
 	Set objFile = objFSO.OpenTextFile(strLogPath & strFileName) '//Open the log
+	If Err <> 0 Then
+		strErrInfo = "Error: " & Err & " Source: " & Err.Source & " Description: " & Err.Description
+		If debug > 1 Then
+			objDebugLog.writeLine(strErrInfo)
+		End If
+	Else
+		objDebugLog.writeLine("Opening log: " & strLogPath & strFileName)
+	End If
+	If debug > 0 Then '//Write basic debug info
+		objDebugLog.writeLine("IAS Format Processing")
+	End If
 	ProcessIASLog
+	If debug > 0 Then
+		strEndTime = Now()
+		objDebugLog.writeLine("UID Script finished execution at " & strEndTime & " Run-time: " & DateDiff("s",strStartTime,strEndTime) & " seconds")
+		objDebugLog.writeLine("===================================================================================================================================")
+	End If
 	objFile.Close '//close off the file
 ElseIf strLogFormat="DHCP" Then
+	If debug > 0 Then '//Write basic debug info
+		objDebugLog.writeLine("DHCP Lease query for Windows Event User: " & strEventUser & " Calling Station ID: " & strCallingStation & " Querying DHCP Server: " & strDHCPServer)
+	End If
 	ProcessDHCPClients
+	If debug > 0 Then
+		strEndTime = Now()
+		objDebugLog.writeLine("UID Script finished execution at " & strEndTime & " Run-time: " & DateDiff("s",strStartTime,strEndTime) & " seconds")
+		objDebugLog.writeLine("===================================================================================================================================")
+	End If
 End If
 
 '//
@@ -126,7 +210,14 @@ Function PostToAgent(strUserAgentData)
 	End If
 	xmlHttp.setRequestHeader "Content-type", "text/xml"
 	xmlHttp.setOption 2, 13056
+	If debug > 0 Then
+		objDebugLog.writeLine("Sending data: " & strUserAgentData & " to " & sUrl)
+	End If
 	xmlHttp.send(strUserAgentData)
+	strResponse = xmlHttp.responseText
+	If debug > 0 Then
+		objDebugLog.writeLine("Response: " & strResponse)
+	End If
 	xmlHttp.close
 End Function
 
@@ -143,6 +234,9 @@ Function LogLength(strPath)
 	objLog.Close
 End Function
 
+'//
+'//Loads users to ignore mappings from.
+'//
 Function LoadExclusions(strExcPath)
 	ExcLength = 0
 	Set objExc = objFSO.OpenTextFile(strExcPath)
@@ -154,10 +248,11 @@ Function LoadExclusions(strExcPath)
 	objExc.Close
 End Function
 
+
+'//
+'//Parses DTS log, inspects the data associated with each event, validates, generates XML string, passes to UID
+'// 
 Function ProcessDTSLog
-	'//
-	'// Create the regular expression.
-	'//
 	Set re = New RegExp
 	re.Pattern = ptrn
 	re.IgnoreCase = False
@@ -165,9 +260,6 @@ Function ProcessDTSLog
 
 	On Error Resume Next
 
-	'//
-	'//Parses the log, inspects the data associated with each event, validates, generates XML string, passes to UID
-	'// 
 	Do Until objFile.AtEndofStream 
 
 		If intLineCounter >= (intLength - 500) Then '//only deal with the last 500 lines (this number can be tweaked to needs)
@@ -192,11 +284,27 @@ Function ProcessDTSLog
 
 				If strUser = strEventUser Then
 
+					If debug = 2 Then
+						objDebugLog.writeLine("User matched against RADIUS log event")
+					End If
+
 					If UBound(Filter(arrExclusions, strUser, True, 1)) <= -1 Then
+						If debug = 2 Then
+							objDebugLog.writeLine("User not excluded")
+						End If
+
 						'//If DateDiff("n",FormatDateTime(strTimestamp),Time) <= 2 Then '//In case the radius accounting doesn't see many events, only load within 5 mins of the trigger.
 							If UBound(Filter(aClientIPs, strClientIP, True, 0)) > -1 Then '//Only deal with events from WLCs defined above
 
+								If debug = 2 Then
+									objDebugLog.writeLine("User from valid WLC")
+								End If
+
 								If InStr(strUser, "host/") = 0 Then '//Filter these events as they aren't required.
+
+									If debug = 2 Then
+										objDebugLog.writeLine("Not machine auth event")
+									End If
 
 									'// Build the XML message
 									strXMLLine = "<uid-message><version>1.0</version><type>update</type><payload><login>"
@@ -221,10 +329,11 @@ Function ProcessDTSLog
 	Loop
 End Function
 
+
+'//
+'//Parses IAS log, inspects the data associated with each event, validates, generates XML string, passes to UID
+'// 
 Function ProcessIASLog
-	'//
-	'//Parses the log, inspects the data associated with each event, validates, generates XML string, passes to UID
-	'// 
 
 	On Error Resume Next
 
@@ -255,11 +364,25 @@ Function ProcessIASLog
 
 					If strUser = strEventUser Then
 
+						If debug = 2 Then
+							objDebugLog.writeLine("User matched against RADIUS log event")
+						End If
+
 						If UBound(Filter(arrExclusions, strUser, True, 1)) <= -1 Then
+							If debug = 2 Then
+								objDebugLog.writeLine("User not excluded")
+							End If
 							'//If DateDiff("n",FormatDateTime(strTimestamp),Time) <= 2 Then '//In case the radius accounting doesn't see many events, only load within 5 mins of the trigger.
 								If UBound(Filter(aClientIPs, strClientIP, True, 0)) > -1 Then '//Only deal with events from WLCs defined above
+									If debug = 2 Then
+										objDebugLog.writeLine("User from valid WLC")
+									End If
 
 									If InStr(strUser, "host/") = 0 Then '//Filter these events as they aren't required.
+										
+										If debug = 2 Then
+											objDebugLog.writeLine("Not machine auth event")
+										End If
 
 										'// Build the XML message
 										strXMLLine = "<uid-message><version>1.0</version><type>update</type><payload><login>"
@@ -285,9 +408,12 @@ Function ProcessIASLog
 	Loop
 End Function
 
+'//
+'//Searches all existing DHCP leases for all scopes for CallingStationID, resolves to IP, passes to agent
+'//
 Function ProcessDHCPClients
 	On Error Resume Next
-
+	
 	If InStr(strEventUser, "\") > 0 Then
 		strEventUser = Right(strEventUser, ((Len(strEventUser))-(InStr(strEventUser, "\"))))
 	End If
@@ -296,12 +422,19 @@ Function ProcessDHCPClients
 
 		If InStr(strEventUser, "host/") = 0 Then '//Filter these events as they aren't required.
 
+			If debug = 2 Then
+				objDebugLog.writeLine("Not machine auth event")
+			End If
+
 			Set oRe=New RegExp
 			oRe.Global=True
 			oRe.Pattern= "\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b"
 			Set o=oRe.Execute(strCallingStation)
-
+		
 			If o.count=1 Then
+				If debug = 2 Then
+					objDebugLog.writeLine("Calling station is IP, no DHCP lookup required")
+				End If
 				strAddress = strCallingStation
 			Else
 
@@ -311,20 +444,35 @@ Function ProcessDHCPClients
 				oRe.Global=True
 
 				oRe.Pattern= "\s(\d+\.\d+\.\d+\.\d+)\s*-\s\d+\.\d+\.\d+\.\d+\s*-Active"
+				If debug = 2 Then
+					objDebugLog.writeLine("Defining scopes:")
+				End If
 				Set oScriptExec = oShell.Exec("netsh dhcp server \\" & strDHCPServer & " show scope") 
 				Set o=oRe.Execute(oScriptExec.StdOut.ReadAll) 
 				For i=0 To o.Count-1
  					Redim Preserve arrScopes(i)
  					arrScopes(i) = o(i).SubMatches(0)
+					If debug = 2 Then
+						objDebugLog.writeLine("       " & arrScopes(i))
+					End If
 				Next
 				CleanMac strCallingStation
 
 				strAddress = "Fail"
 
+				If debug = 2 Then
+					objDebugLog.writeLine("Searching DHCP leases for " & strCallingStation)
+				End If
+
 				For Each scope in arrScopes
+					If debug = 2 Then
+						objDebugLog.writeLine("       " & "SCOPE: " & scope)
+					End If
 
 					If strAddress = "Fail" Then
     						strAddress = FindMac(scope, strCallingStation)
+					Else
+						Exit For
 					End If
 				Next
 			End If
@@ -342,11 +490,26 @@ Function ProcessDHCPClients
 
 				PostToAgent(strXMLLine) '//Send the relevant UID details to User-Agent
 
+			Else
+				If debug > 0 Then
+					objDebugLog.writeLine("MAC not found, no data posted")
+				End If
 			End If
+		Else
+			If debug = 2 Then
+				objDebugLog.writeLine("Machine auth event")
+			End If
+		End If
+	Else
+		If debug = 2 Then
+			objDebugLog.writeLine("Machine auth event")
 		End If
 	End If
 End Function
 
+'//
+'//Loads site-specific variables from UIDConfig.xml
+'//
 Function LoadConfig
 	strQuery = "/user-id-script-config/wireless-lan-controllers/wlc"
 	Set colItem = xmlDoc.selectNodes(strQuery)
@@ -386,9 +549,15 @@ Function LoadConfig
 	strQuery = "/user-id-script-config/Timeout"
 	Set objItem = xmlDoc.selectSingleNode(strQuery)
 	strTimeout = objItem.text
+	strQuery = "/user-id-script-config/Debug"
+	Set objItem = xmlDoc.selectSingleNode(strQuery)
+	debug = objItem.text
 	count = 0
 End Function
 
+'//
+'//Searches all DHCP leases within a scope for a mac address, returns the IP associated, otherwise returns "Fail"
+'//
 Function FindMac(strScope, strMac)
 	strIP = ""
 	Set oShell = CreateObject("WScript.Shell") 
@@ -402,8 +571,17 @@ Function FindMac(strScope, strMac)
 		If p.Count > 0 Then
 			strMacComp = p(0).SubMatches(1)
 			CleanMac strMacComp
+			If debug = 2 Then
+				objDebugLog.writeLine("       " & "       " & "MAC: " & strMacComp)
+			End If
 			If strMac = strMacComp Then
                         	strIP = p(0).SubMatches(0)
+				If debug = 2 Then
+					objDebugLog.writeLine("       " & "       " & "MAC found, matched IP: " & strIP)
+				End If
+				If debug = 1 Then
+					objDebugLog.writeLine("MAC found, matched IP: " & strIP)
+				End If
 				Exit Do
 			End If
 		End If
@@ -415,9 +593,65 @@ Function FindMac(strScope, strMac)
 	End If
 End Function
 
+'//
+'//Takes a mac, casts it to lower case and removes seperators for comparison purposes
+'//
 Function CleanMac(strMac)
 	strMac = Replace(strMac, "-", "")
 	strMac = Replace(strMac, ".", "")
 	strMac = Replace(strMac, ":", "")
 	strMac = LCase(strMac)
+End Function
+
+'//
+'//Creates a UIDConfig file with default parameters
+'//
+Function CreateDefaultConfig
+	Set wshShell = WScript.CreateObject( "WScript.Shell" )
+	Set objCFG = xmlDoc.createElement("user-id-script-config")
+	xmlDoc.appendChild objCFG
+	Set objIntro = xmlDoc.createProcessingInstruction ("xml","version='1.0' encoding='UTF-8'")  
+	xmlDoc.insertBefore objIntro,xmlDoc.childNodes(0)
+	Set objWLCs = xmlDoc.createElement("wireless-lan-controllers") 
+	objCFG.appendChild objWLCs
+	Set objWLC = xmlDoc.createElement("wlc")
+	objWLC.text = "1.1.1.1"
+	objWLCs.appendChild objWLC
+	Set objDomain = xmlDoc.createElement("domain")
+	strUserDomain = wshShell.ExpandEnvironmentStrings( "%USERDOMAIN%" )
+	strUserDomain = UCase(strUserDomain)
+	objDomain.text = strUserDomain
+	objCFG.appendChild objDomain
+	Set objLogPath = xmlDoc.createElement("LogPath")
+	objLogPath.text = "C:\Windows\System32\LogFiles\"
+	objCFG.appendChild objLogPath
+	Set objLogFormat = xmlDoc.createElement("LogFormat")
+	objLogFormat.text = "DHCP"
+	objCFG.appendChild objLogFormat
+	Set objAgentServer = xmlDoc.createElement("AgentServer")
+	objAgentServer.text = "127.0.0.1"
+	objCFG.appendChild objAgentServer
+	Set objAgentPort = xmlDoc.createElement("AgentPort")
+	objAgentPort.text = "5006"
+	objCFG.appendChild objAgentPort
+	Set objDebug = xmlDoc.createElement("Debug")
+	objDebug.text = "0"
+	objCFG.appendChild objDebug
+	Set objDHCPServer = xmlDoc.createElement("DHCPServer")
+	strComputerName = wshShell.ExpandEnvironmentStrings( "%ComputerName%" )
+	objDHCPServer.text = strComputerName
+	objCFG.appendChild objDHCPServer
+	Set objAgent = xmlDoc.createElement("Agent")
+	objAgent.text = "1"
+	objCFG.appendChild objAgent
+	Set objKey = xmlDoc.createElement("Key")
+	objKey.text = "key"
+	objCFG.appendChild objKey
+	Set objTimeout = xmlDoc.createElement("Timeout")
+	objTimeout.text = "120"
+	objCFG.appendChild objTimeout
+	Set objVsys = xmlDoc.createElement("VSYS")
+	objVsys.text = "vsys"
+	objCFG.appendChild objVsys
+	xmlDoc.Save "C:\Program Files (x86)\Palo Alto Networks\User-ID Agent\UIDConfig.xml"
 End Function
