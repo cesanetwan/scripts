@@ -94,7 +94,7 @@ If strLogFormat="DTS" Then
 	'//
 	intLength = LogLength(strLogPath & strFileName) '//The current length of the log file.
 	intLineCounter = 0
-	
+
 	Set objFile = objFSO.OpenTextFile(strLogPath & strFileName) '//Open the log
 	ProcessDTSLog
 	objFile.Close '//close off the file
@@ -104,7 +104,7 @@ ElseIf strLogFormat="IAS" Then
 	'//
 	intLength = LogLength(strLogPath & strFileName) '//The current length of the log file.
 	intLineCounter = 0
-	
+
 	Set objFile = objFSO.OpenTextFile(strLogPath & strFileName) '//Open the log
 	ProcessIASLog
 	objFile.Close '//close off the file
@@ -287,59 +287,62 @@ End Function
 
 Function ProcessDHCPClients
 	On Error Resume Next
-	
+
 	If InStr(strEventUser, "\") > 0 Then
 		strEventUser = Right(strEventUser, ((Len(strEventUser))-(InStr(strEventUser, "\"))))
 	End If
 
-	If InStr(strEventUser, "host/") = 0 Then '//Filter these events as they aren't required.
+	If InStr(strEventUser, "$") = 0 Then
 
-		Set oRe=New RegExp
-		oRe.Global=True
-		oRe.Pattern= "\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b"
-		Set o=oRe.Execute(strCallingStation)
-		
-		If o.count=1 Then
-			strAddress = strCallingStation
-		Else
+		If InStr(strEventUser, "host/") = 0 Then '//Filter these events as they aren't required.
 
-			Set oRe=New RegExp 
-			Set oShell = CreateObject("WScript.Shell") 
-  
+			Set oRe=New RegExp
 			oRe.Global=True
+			oRe.Pattern= "\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b"
+			Set o=oRe.Execute(strCallingStation)
 
-			oRe.Pattern= "\s(\d+\.\d+\.\d+\.\d+)\s*-\s\d+\.\d+\.\d+\.\d+\s*-Active"
-			Set oScriptExec = oShell.Exec("netsh dhcp server \\" & strDHCPServer & " show scope") 
-			Set o=oRe.Execute(oScriptExec.StdOut.ReadAll) 
-			For i=0 To o.Count-1
- 				Redim Preserve arrScopes(i)
- 				arrScopes(i) = o(i).SubMatches(0)
-			Next
-			CleanMac strCallingStation
-
-			strAddress = "Fail"
-
-			For Each scope in arrScopes
-
-				If strAddress = "Fail" Then
-    					strAddress = FindMac(scope, strCallingStation)
-				End If
-			Next
-		End If
-
-		If strAddress <> "Fail" Then
-
-			'// Build the XML message
-			strXMLLine = "<uid-message><version>1.0</version><type>update</type><payload><login>"
-			If blnAgent = 1 Then
-				strXMLLine = strXMLLine & "<entry name=""" & strDomain & "\" & strEventUser & """ ip=""" & strAddress & """/>"
+			If o.count=1 Then
+				strAddress = strCallingStation
 			Else
-				strXMLLine = strXMLLine & "<entry name=""" & strDomain & "\" & strEventUser & """ ip=""" & strAddress & """ timeout=""20""/>"
+
+				Set oRe=New RegExp 
+				Set oShell = CreateObject("WScript.Shell") 
+  
+				oRe.Global=True
+
+				oRe.Pattern= "\s(\d+\.\d+\.\d+\.\d+)\s*-\s\d+\.\d+\.\d+\.\d+\s*-Active"
+				Set oScriptExec = oShell.Exec("netsh dhcp server \\" & strDHCPServer & " show scope") 
+				Set o=oRe.Execute(oScriptExec.StdOut.ReadAll) 
+				For i=0 To o.Count-1
+ 					Redim Preserve arrScopes(i)
+ 					arrScopes(i) = o(i).SubMatches(0)
+				Next
+				CleanMac strCallingStation
+
+				strAddress = "Fail"
+
+				For Each scope in arrScopes
+
+					If strAddress = "Fail" Then
+    						strAddress = FindMac(scope, strCallingStation)
+					End If
+				Next
 			End If
-			strXMLLine = strXMLLine & "</login></payload></uid-message>"
 
-			PostToAgent(strXMLLine) '//Send the relevant UID details to User-Agent
+			If strAddress <> "Fail" Then
 
+				'// Build the XML message
+				strXMLLine = "<uid-message><version>1.0</version><type>update</type><payload><login>"
+				If blnAgent = 1 Then
+					strXMLLine = strXMLLine & "<entry name=""" & strDomain & "\" & strEventUser & """ ip=""" & strAddress & """/>"
+				Else
+					strXMLLine = strXMLLine & "<entry name=""" & strDomain & "\" & strEventUser & """ ip=""" & strAddress & """ timeout=""20""/>"
+				End If
+				strXMLLine = strXMLLine & "</login></payload></uid-message>"
+
+				PostToAgent(strXMLLine) '//Send the relevant UID details to User-Agent
+
+			End If
 		End If
 	End If
 End Function
