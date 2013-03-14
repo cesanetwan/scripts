@@ -12,6 +12,7 @@
 
 ' v5.0
 '	* DHCP stuff added
+'	* Logic opto
 
 ' v4.7
 '	* Now passes username from Windows Event to script to allow for more precision - requires the scheduled task to be created with further criteria.
