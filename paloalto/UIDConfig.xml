@@ -10,5 +10,9 @@
 <AgentServer>127.0.0.1</AgentServer>
 <AgentPort>5006</AgentPort>
 <Debug>1</Debug>
-<DHCPServer>SERVERNAME</DHCPServer>
+<DHCPServer>SERVER</DHCPServer>
+<Key>key</Key>
+<VSYS>vsys0</VSYS>
+<Agent>0</Agent>
+<Timeout>20</Timeout>
 </user-id-script-config>

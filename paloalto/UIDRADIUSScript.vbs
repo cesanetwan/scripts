@@ -5,17 +5,17 @@
 ' copyright notice and this permission notice appear in all copies.
 
 ' Alterations to use RADIUS accounting logs/DHCP leases over Kiwi/syslog 
-' v5.0
+' v5.1
 ' Gareth Hill
+
 
 ' Changelog:
 
+' v5.1 
+'	* Agentless support
+
 ' v5.0
 '	* DHCP stuff added
-<<<<<<< HEAD
-=======
-'	* Logic opto
->>>>>>> dhcp
 
 ' v4.7
 '	* Now passes username from Windows Event to script to allow for more precision - requires the scheduled task to be created with further criteria.
@@ -71,7 +71,7 @@ ptrn = "<Timestamp data_type=\S4\S>.+(\d\d:\d\d:\d\d)\.\d+</Timestamp>.*<User-Na
 ptrnDHCP= "<Timestamp data_type=\S4\S>.+(\d\d:\d\d:\d\d)\.\d+</Timestamp>.*<User-Name data_type=\S1\S>(.+)</User-Name>.*<Calling-Station-Id data_type=\S1\S>(.+)</Calling-Station-Id>"
 strFileName = "IN" & right(year(date()),2) & right("0" & month(date()),2) & right("0" & day(date()),2) & ".log" '//The log name for the date in question
 Dim arrExclusions(), aClientIPS()
-Dim strDomain, strLogPath, strLogFormat, strAgentServer, strAgentPort, strDHCPServer
+Dim strDomain, strLogPath, strLogFormat, strAgentServer, strAgentPort, strDHCPServer, strVsys, blnAgent, strAPIKey, strTimeout
 Set xmlDoc = CreateObject("Microsoft.XMLDOM")
 xmlDoc.Async = "False"
 xmlDoc.Load("C:\Program Files (x86)\Palo Alto Networks\User-ID Agent\UIDConfig.xml")
@@ -94,7 +94,7 @@ If strLogFormat="DTS" Then
 	'//
 	intLength = LogLength(strLogPath & strFileName) '//The current length of the log file.
 	intLineCounter = 0
-	
+
 	Set objFile = objFSO.OpenTextFile(strLogPath & strFileName) '//Open the log
 	ProcessDTSLog
 	objFile.Close '//close off the file
@@ -104,7 +104,7 @@ ElseIf strLogFormat="IAS" Then
 	'//
 	intLength = LogLength(strLogPath & strFileName) '//The current length of the log file.
 	intLineCounter = 0
-	
+
 	Set objFile = objFSO.OpenTextFile(strLogPath & strFileName) '//Open the log
 	ProcessIASLog
 	objFile.Close '//close off the file
@@ -116,14 +116,15 @@ End If
 '//Takes an XML string, opens a connection to User-Agent, sends XML, closes connection
 '//
 Function PostToAgent(strUserAgentData)
-	sUrl = "https://" & strAgentServer & ":" & strAgentPort & "/"
 	On Error Resume Next
-	xmlHttp.open "put", sUrl, False
-<<<<<<< HEAD
-	xmlhttp.setRequestHeader "Content-type", "application/x-www-form-urlencoded; charset=ISO-8859-1"
-=======
-	xmlhttp.setRequestHeader "Content-type", "text/xml"
->>>>>>> dhcp
+	If blnAgent = 1 Then
+		sUrl = "https://" & strAgentServer & ":" & strAgentPort & "/"
+		xmlHttp.open "put", sUrl, False
+	Else
+		sUrl = "https://filter.cesa.catholic.edu.au/api/?key=" & strAPIKey & "&type=user-id&action=set&vsys=" & strVsys & "&client=wget&file-name=UID.xml"
+		xmlHttp.open "post", sUrl, False
+	End If
+	xmlHttp.setRequestHeader "Content-type", "text/xml"
 	xmlHttp.setOption 2, 13056
 	xmlHttp.send(strUserAgentData)
 	xmlHttp.close
@@ -199,7 +200,11 @@ Function ProcessDTSLog
 
 									'// Build the XML message
 									strXMLLine = "<uid-message><version>1.0</version><type>update</type><payload><login>"
-									strXMLLine = strXMLLine & "<entry name=""" & strDomain & "\" & strUser & """ ip=""" & strAddress & """/>"
+									If blnAgent = 1 Then
+										strXMLLine = strXMLLine & "<entry name=""" & strDomain & "\" & strUser & """ ip=""" & strAddress & """/>"
+									Else
+										strXMLLine = strXMLLine & "<entry name=""" & strDomain & "\" & strUser & """ ip=""" & strAddress & """ timeout=""20""/>"
+									End If
 									strXMLLine = strXMLLine & "</login></payload></uid-message>"
 
 									PostToAgent(strXMLLine) '//Send the relevant UID details to User-Agent
@@ -258,7 +263,11 @@ Function ProcessIASLog
 
 										'// Build the XML message
 										strXMLLine = "<uid-message><version>1.0</version><type>update</type><payload><login>"
-										strXMLLine = strXMLLine & "<entry name=""" & strDomain & "\" & strUser & """ ip=""" & strAddress & """/>"
+										If blnAgent = 1 Then
+											strXMLLine = strXMLLine & "<entry name=""" & strDomain & "\" & strUser & """ ip=""" & strAddress & """/>"
+										Else
+											strXMLLine = strXMLLine & "<entry name=""" & strDomain & "\" & strUser & """ ip=""" & strAddress & """ timeout=""20""/>"
+										End If
 										strXMLLine = strXMLLine & "</login></payload></uid-message>"
 
 										PostToAgent(strXMLLine) '//Send the relevant UID details to User-Agent
@@ -279,86 +288,61 @@ End Function
 Function ProcessDHCPClients
 	On Error Resume Next
 
-<<<<<<< HEAD
-
-	Set oRe=New RegExp 
-	Set oShell = CreateObject("WScript.Shell") 
-  
-	oRe.Global=True
-
-	oRe.Pattern= "\s(\d+\.\d+\.\d+\.\d+)\s*-\s\d+\.\d+\.\d+\.\d+\s*-Active"
-	Set oScriptExec = oShell.Exec("netsh dhcp server \\" & strDHCPServer & " show scope") 
-	Set o=oRe.Execute(oScriptExec.StdOut.ReadAll) 
-	For i=0 To o.Count-1
- 		Redim Preserve arrScopes(i)
- 		arrScopes(i) = o(i).SubMatches(0)
-	Next
-	
-
-
-=======
->>>>>>> dhcp
 	If InStr(strEventUser, "\") > 0 Then
 		strEventUser = Right(strEventUser, ((Len(strEventUser))-(InStr(strEventUser, "\"))))
 	End If
 
-	If InStr(strEventUser, "host/") = 0 Then '//Filter these events as they aren't required.
+	If InStr(strEventUser, "$") = 0 Then
 
-<<<<<<< HEAD
-		CleanMac strCallingStation
+		If InStr(strEventUser, "host/") = 0 Then '//Filter these events as they aren't required.
 
-		strAddress = "Fail"
-
-		For Each scope in arrScopes
-
-			If strAddress = "Fail" Then
-    				strAddress = FindMac(scope, strCallingStation)
-			End If
-		Next
-=======
-		Set oRe=New RegExp
-		oRe.Global=True
-		oRe.Pattern= "\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b"
-		Set o=oRe.Execute(strCallingStation)
-		
-		If o.count=1 Then
-			strAddress = strCallingStation
-		Else
-
-			Set oRe=New RegExp 
-			Set oShell = CreateObject("WScript.Shell") 
-  
+			Set oRe=New RegExp
 			oRe.Global=True
+			oRe.Pattern= "\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b"
+			Set o=oRe.Execute(strCallingStation)
 
-			oRe.Pattern= "\s(\d+\.\d+\.\d+\.\d+)\s*-\s\d+\.\d+\.\d+\.\d+\s*-Active"
-			Set oScriptExec = oShell.Exec("netsh dhcp server \\" & strDHCPServer & " show scope") 
-			Set o=oRe.Execute(oScriptExec.StdOut.ReadAll) 
-			For i=0 To o.Count-1
- 				Redim Preserve arrScopes(i)
- 				arrScopes(i) = o(i).SubMatches(0)
-			Next
-			CleanMac strCallingStation
+			If o.count=1 Then
+				strAddress = strCallingStation
+			Else
 
-			strAddress = "Fail"
+				Set oRe=New RegExp 
+				Set oShell = CreateObject("WScript.Shell") 
+  
+				oRe.Global=True
 
-			For Each scope in arrScopes
+				oRe.Pattern= "\s(\d+\.\d+\.\d+\.\d+)\s*-\s\d+\.\d+\.\d+\.\d+\s*-Active"
+				Set oScriptExec = oShell.Exec("netsh dhcp server \\" & strDHCPServer & " show scope") 
+				Set o=oRe.Execute(oScriptExec.StdOut.ReadAll) 
+				For i=0 To o.Count-1
+ 					Redim Preserve arrScopes(i)
+ 					arrScopes(i) = o(i).SubMatches(0)
+				Next
+				CleanMac strCallingStation
 
-				If strAddress = "Fail" Then
-    					strAddress = FindMac(scope, strCallingStation)
+				strAddress = "Fail"
+
+				For Each scope in arrScopes
+
+					If strAddress = "Fail" Then
+    						strAddress = FindMac(scope, strCallingStation)
+					End If
+				Next
+			End If
+
+			If strAddress <> "Fail" Then
+
+				'// Build the XML message
+				strXMLLine = "<uid-message><version>1.0</version><type>update</type><payload><login>"
+				If blnAgent = 1 Then
+					strXMLLine = strXMLLine & "<entry name=""" & strDomain & "\" & strEventUser & """ ip=""" & strAddress & """/>"
+				Else
+					strXMLLine = strXMLLine & "<entry name=""" & strDomain & "\" & strEventUser & """ ip=""" & strAddress & """ timeout=""20""/>"
 				End If
-			Next
-		End If
->>>>>>> dhcp
+				strXMLLine = strXMLLine & "</login></payload></uid-message>"
 
-		If strAddress <> "Fail" Then
+				PostToAgent(strXMLLine) '//Send the relevant UID details to User-Agent
 
-			'// Build the XML message
-			strXMLLine = "<uid-message><version>1.0</version><type>update</type><payload><login>"
-			strXMLLine = strXMLLine & "<entry name=""" & strDomain & "\" & strEventUser & """ ip=""" & strAddress & """/>"
-			strXMLLine = strXMLLine & "</login></payload></uid-message>"
-
-			PostToAgent(strXMLLine) '//Send the relevant UID details to User-Agent
-
+			End If
 		End If
 	End If
 End Function
@@ -390,6 +374,18 @@ Function LoadConfig
 	strQuery = "/user-id-script-config/DHCPServer"
 	Set objItem = xmlDoc.selectSingleNode(strQuery)
 	strDHCPServer = objItem.text
+	strQuery = "/user-id-script-config/VSYS"
+	Set objItem = xmlDoc.selectSingleNode(strQuery)
+	strVsys = objItem.text
+	strQuery = "/user-id-script-config/Key"
+	Set objItem = xmlDoc.selectSingleNode(strQuery)
+	strAPIKey = objItem.text
+	strQuery = "/user-id-script-config/Agent"
+	Set objItem = xmlDoc.selectSingleNode(strQuery)
+	blnAgent = objItem.text
+	strQuery = "/user-id-script-config/Timeout"
+	Set objItem = xmlDoc.selectSingleNode(strQuery)
+	strTimeout = objItem.text
 	count = 0
 End Function
 
@@ -408,10 +404,7 @@ Function FindMac(strScope, strMac)
 			CleanMac strMacComp
 			If strMac = strMacComp Then
                         	strIP = p(0).SubMatches(0)
-<<<<<<< HEAD
-=======
 				Exit Do
->>>>>>> dhcp
 			End If
 		End If
       	Loop
@@ -427,8 +420,4 @@ Function CleanMac(strMac)
 	strMac = Replace(strMac, ".", "")
 	strMac = Replace(strMac, ":", "")
 	strMac = LCase(strMac)
-<<<<<<< HEAD
 End Function
-=======
-End Function
->>>>>>> dhcp
