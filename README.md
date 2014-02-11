@@ -1,8 +1,5 @@
-# CESANet WAN Scripts
+Our scripts have been moved into seperate repositories for ease of management! You can now find them at:
 
-Here you can obtain further information pertaining to the various scripts distributed through the CESANet WAN github, including information on the purposes of said scripts and installation/configuration guides.
-
-Please click the script of your interest for more details:
-
-* [UID RADIUS Script](https://github.com/cesanetwan/scripts/wiki/CEFilter-UID-RADIUS-script)
-* [Sophos Deployment Script](https://github.com/cesanetwan/scripts/wiki/Sophos-Deployment-Script)
+UID RADIUS Script: VBS (https://github.com/cesanetwan/uid-radius-script-vbs) / PS (https://github.com/cesanetwan/uid-radius-script-ps)
+Sophos Deployment Script: https://github.com/cesanetwan/sophos-automated-deployment
+XML API Proxy: https://github.com/cesanetwan/xml-api-proxy
